@@ -62,6 +62,30 @@ export const store = {
     localStorage.setItem(KEYS.SESSIONS, JSON.stringify(sessions));
   },
 
+  deleteSession: (sessionId: string) => {
+    const sessions = store.getSessions().filter(s => s.id !== sessionId);
+    localStorage.setItem(KEYS.SESSIONS, JSON.stringify(sessions));
+  },
+
+  deleteEntry: (sessionId: string, entryId: string) => {
+    const sessions = store.getSessions();
+    const updated = sessions
+      .map(session => {
+        if (session.id !== sessionId) return session;
+        const filteredEntries = session.entries.filter(e => e.id !== entryId);
+        return { ...session, entries: filteredEntries };
+      })
+      .filter(session => session.entries.length > 0); // drop empty sessions
+
+    localStorage.setItem(KEYS.SESSIONS, JSON.stringify(updated));
+  },
+
+  updateSessionId: (oldId: string, newId: string) => {
+    const sessions = store.getSessions();
+    const updated = sessions.map(s => s.id === oldId ? { ...s, id: newId } : s);
+    localStorage.setItem(KEYS.SESSIONS, JSON.stringify(updated));
+  },
+
   // Helper to get previous stats for logging UI
   getLastSetForExercise: (exerciseId: string): { weight: number; reps: number } | null => {
     const sessions = store.getSessions();

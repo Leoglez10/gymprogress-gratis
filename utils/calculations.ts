@@ -20,6 +20,36 @@ export const calculateE1RM = (weight: number, reps: number): number => {
   return weight * (1 + reps / 30);
 };
 
+// Inverse Epley: reps = 30 * (e1RM/weight - 1)
+export const estimateMaxRepsAtWeight = (weight: number, e1rm: number): number => {
+  if (weight <= 0 || e1rm <= 0) return 0;
+  const reps = 30 * (e1rm / weight - 1);
+  return Math.max(0, Math.floor(reps));
+};
+
+// Simple RPE/RIR mapping commonly used: RPE = 10 - RIR
+export const rpeFromRir = (rir: number): number => {
+  if (rir == null || isNaN(rir as any)) return NaN;
+  return Math.max(1, Math.min(10, 10 - rir));
+};
+
+export const rirFromRpe = (rpe: number): number => {
+  if (rpe == null || isNaN(rpe as any)) return NaN;
+  return Math.max(0, Math.min(10, 10 - rpe));
+};
+
+// Estimate RIR for a set given an e1RM context
+export const estimateRirFromSet = (weight: number, reps: number, e1rm: number): number => {
+  const maxReps = estimateMaxRepsAtWeight(weight, e1rm);
+  return Math.max(0, maxReps - reps);
+};
+
+// Estimate achievable reps at given RIR (using e1RM as context)
+export const estimateRepsFromRir = (weight: number, e1rm: number, rir: number): number => {
+  const maxReps = estimateMaxRepsAtWeight(weight, e1rm);
+  return Math.max(0, Math.floor(maxReps - (rir || 0)));
+};
+
 export const getSessionMaxE1RM = (sets: SetEntry[]): number => {
   let max = 0;
   sets.forEach(set => {
@@ -61,6 +91,8 @@ export const calculateExerciseStats = (
       trendPercent: 0,
       status: 'new',
       history: [],
+      avgRIR: undefined,
+      avgRPE: undefined,
     };
   }
 
@@ -98,6 +130,25 @@ export const calculateExerciseStats = (
   if (trendPercent >= 2) status = 'improving';
   else if (trendPercent <= -2) status = 'declining';
 
+  // Compute average RIR/RPE for the most recent session of this exercise
+  const latestSession = allSessions
+    .slice()
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .find(s => s.entries.some(e => e.exerciseId === exercise.id));
+
+  let avgRIR: number | undefined = undefined;
+  let avgRPE: number | undefined = undefined;
+  if (latestSession) {
+    const entry = latestSession.entries.find(e => e.exerciseId === exercise.id)!;
+    const workSets = entry.sets.filter(s => !s.isWarmup && s.reps > 0 && s.weight > 0);
+    if (workSets.length) {
+      const rirVals = workSets.map(s => (s.rir != null ? s.rir : (s.rpe != null ? Math.max(0, Math.min(10, 10 - s.rpe)) : undefined))).filter((v): v is number => v != null);
+      const rpeVals = workSets.map(s => (s.rpe != null ? s.rpe : (s.rir != null ? Math.max(1, Math.min(10, 10 - s.rir)) : undefined))).filter((v): v is number => v != null);
+      if (rirVals.length) avgRIR = Math.round((rirVals.reduce((a, b) => a + b, 0) / rirVals.length) * 10) / 10;
+      if (rpeVals.length) avgRPE = Math.round((rpeVals.reduce((a, b) => a + b, 0) / rpeVals.length) * 10) / 10;
+    }
+  }
+
   return {
     exerciseId: exercise.id,
     exerciseName: exercise.name,
@@ -107,5 +158,7 @@ export const calculateExerciseStats = (
     trendPercent,
     status,
     history: historyForChart,
+    avgRIR,
+    avgRPE,
   };
 };

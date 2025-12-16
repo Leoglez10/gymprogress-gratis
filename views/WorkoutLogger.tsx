@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowLeft, Save, Plus, Trash2, CheckCircle2, StickyNote, RefreshCw, PlusCircle, X } from 'lucide-react';
 import { store } from '../services/store';
+import { exerciseService } from '../services/exerciseService';
+import { authService } from '../services/auth';
+import { sessionService } from '../services/sessionService';
 import { Exercise, WorkoutSession, WorkoutEntry, SetEntry, Unit } from '../types';
 import { convertWeight, formatWeight, KG_TO_LB } from '../utils/calculations';
 
@@ -12,20 +15,44 @@ interface Props {
 }
 
 export const WorkoutLogger: React.FC<Props> = ({ onCancel, onFinish, unit, onToggleUnit }) => {
-  const [exercises, setExercises] = useState<Exercise[]>(store.getExercises());
+  const [exercises, setExercises] = useState<Exercise[]>([]);
   const [activeExerciseId, setActiveExerciseId] = useState<string | null>(null);
   const [sessionEntries, setSessionEntries] = useState<WorkoutEntry[]>([]);
   const [sessionNote, setSessionNote] = useState<string>('');
   const [showNoteInput, setShowNoteInput] = useState<boolean>(false);
-  
+  const [loadingExercises, setLoadingExercises] = useState(true);
+
   // Create New Exercise State
   const [isCreatingExercise, setIsCreatingExercise] = useState(false);
   const [newExerciseName, setNewExerciseName] = useState('');
   const [newExerciseGroup, setNewExerciseGroup] = useState('');
-  
+  const [savingExercise, setSavingExercise] = useState(false);
+
   // Set Input State
   const [currentWeight, setCurrentWeight] = useState<string>('');
   const [currentReps, setCurrentReps] = useState<string>('');
+  const [savingSession, setSavingSession] = useState(false);
+  const [currentRir, setCurrentRir] = useState<string>('');
+
+  // Load exercises from Supabase on mount
+  useEffect(() => {
+    loadExercises();
+  }, []);
+
+  const loadExercises = async () => {
+    try {
+      setLoadingExercises(true);
+      const user = await authService.getCurrentUser();
+      if (user) {
+        const fetchedExercises = await exerciseService.fetchExercises(user.id);
+        setExercises(fetchedExercises);
+      }
+    } catch (error) {
+      console.error('Error loading exercises:', error);
+    } finally {
+      setLoadingExercises(false);
+    }
+  };
 
   // When selecting an exercise, try to autofill from history
   useEffect(() => {
@@ -47,35 +74,56 @@ export const WorkoutLogger: React.FC<Props> = ({ onCancel, onFinish, unit, onTog
   // Handle manual unit toggle to convert active input
   const handleUnitToggle = () => {
     const newUnit = unit === 'kg' ? 'lb' : 'kg';
-    
+
     // Convert currently typed weight if it's a valid number
     if (currentWeight) {
-        const val = parseFloat(currentWeight);
-        if (!isNaN(val)) {
-            let newVal = 0;
-            if (unit === 'kg') {
-                // KG -> LB
-                newVal = val * KG_TO_LB;
-            } else {
-                // LB -> KG
-                newVal = val / KG_TO_LB;
-            }
-            // Update input with 1 decimal precision
-            setCurrentWeight(Number.isInteger(newVal) ? newVal.toString() : newVal.toFixed(1));
+      const val = parseFloat(currentWeight);
+      if (!isNaN(val)) {
+        let newVal = 0;
+        if (unit === 'kg') {
+          // KG -> LB
+          newVal = val * KG_TO_LB;
+        } else {
+          // LB -> KG
+          newVal = val / KG_TO_LB;
         }
+        // Update input with 1 decimal precision
+        setCurrentWeight(Number.isInteger(newVal) ? newVal.toString() : newVal.toFixed(1));
+      }
     }
-    
+
     onToggleUnit(newUnit);
   };
 
-  const handleCreateExercise = () => {
-    if (newExerciseName.trim() && newExerciseGroup.trim()) {
-      const newEx = store.addExercise(newExerciseName, newExerciseGroup);
-      setExercises(store.getExercises()); // Reload list
-      setActiveExerciseId(newEx.id); // Auto-select
-      setIsCreatingExercise(false);
-      setNewExerciseName('');
-      setNewExerciseGroup('');
+  const handleCreateExercise = async () => {
+    if (!newExerciseName.trim() || !newExerciseGroup.trim()) return;
+
+    try {
+      setSavingExercise(true);
+      const user = await authService.getCurrentUser();
+      if (!user) {
+        alert('Debes iniciar sesión para crear ejercicios');
+        return;
+      }
+
+      const newEx = await exerciseService.createExercise(
+        user.id,
+        newExerciseName.trim(),
+        newExerciseGroup.trim()
+      );
+
+      if (newEx) {
+        setExercises([...exercises, newEx]); // Add to list
+        setActiveExerciseId(newEx.id); // Auto-select
+        setIsCreatingExercise(false);
+        setNewExerciseName('');
+        setNewExerciseGroup('');
+      }
+    } catch (error: any) {
+      console.error('Error creating exercise:', error);
+      alert(error.message || 'Error al crear el ejercicio');
+    } finally {
+      setSavingExercise(false);
     }
   };
 
@@ -94,17 +142,22 @@ export const WorkoutLogger: React.FC<Props> = ({ onCancel, onFinish, unit, onTog
 
   const handleAddSet = () => {
     if (!activeExerciseId || !currentWeight || !currentReps) return;
-    
+
     // Logic: Input is in User Unit. Storage is always in KG.
     const inputWeight = parseFloat(currentWeight);
     const weightToStore = unit === 'kg' ? inputWeight : inputWeight / KG_TO_LB;
 
     setSessionEntries(prev => prev.map(entry => {
       if (entry.exerciseId === activeExerciseId) {
+        const rirVal = currentRir !== '' ? Math.max(0, Math.min(10, parseInt(currentRir))) : undefined;
+        const rpeVal = rirVal != null ? Math.max(1, Math.min(10, 10 - rirVal)) : undefined;
+
         const newSet: SetEntry = {
           id: `set_${Date.now()}`,
           weight: weightToStore, // Save as KG
           reps: parseInt(currentReps),
+          rpe: rpeVal,
+          rir: rirVal,
           isWarmup: false
         };
         return { ...entry, sets: [...entry.sets, newSet] };
@@ -122,24 +175,45 @@ export const WorkoutLogger: React.FC<Props> = ({ onCancel, onFinish, unit, onTog
     }));
   };
 
-  const handleFinish = () => {
+  const handleFinish = async () => {
     // Filter out empty entries
     const validEntries = sessionEntries.filter(e => e.sets.length > 0);
-    
+
     if (validEntries.length === 0) {
       onCancel();
       return;
     }
 
+    const localId = `session_${Date.now()}`;
     const newSession: WorkoutSession = {
-      id: `session_${Date.now()}`,
+      id: localId,
       date: new Date().toISOString(),
       entries: validEntries,
       note: sessionNote
     };
 
-    store.saveSession(newSession);
-    onFinish();
+    try {
+      setSavingSession(true);
+      const user = await authService.getCurrentUser();
+
+      if (user) {
+        // Save to Supabase
+        const sessionId = await sessionService.createSession(user.id, newSession);
+        if (sessionId) {
+          newSession.id = sessionId;
+        }
+      }
+
+      // Also save to localStorage as backup
+      store.saveSession(newSession);
+
+      onFinish();
+    } catch (error: any) {
+      console.error('Error saving session:', error);
+      alert(error.message || 'Error al guardar la sesión. Intenta de nuevo.');
+    } finally {
+      setSavingSession(false);
+    }
   };
 
   const activeEntry = sessionEntries.find(e => e.exerciseId === activeExerciseId);
@@ -163,32 +237,32 @@ export const WorkoutLogger: React.FC<Props> = ({ onCancel, onFinish, unit, onTog
       <div className="bg-slate-800 border-b border-slate-700">
         <div className="flex items-center justify-between p-4">
           <div className="flex items-center">
-             <button onClick={onCancel} className="p-2 -ml-2 text-slate-400 hover:text-white mr-2">
-                <ArrowLeft />
-             </button>
-             <h2 className="font-bold text-lg hidden xs:block">Registrar</h2>
+            <button onClick={onCancel} className="p-2 -ml-2 text-slate-400 hover:text-white mr-2">
+              <ArrowLeft />
+            </button>
+            <h2 className="font-bold text-lg hidden xs:block">Registrar</h2>
           </div>
-          
+
           <div className="flex items-center space-x-2">
             {/* Unit Toggle Badge */}
-            <button 
-                onClick={handleUnitToggle}
-                className="flex items-center space-x-1 px-3 py-1.5 rounded-full bg-slate-700 hover:bg-slate-600 transition-colors border border-slate-600"
-                title="Cambiar Unidad"
+            <button
+              onClick={handleUnitToggle}
+              className="flex items-center space-x-1 px-3 py-1.5 rounded-full bg-slate-700 hover:bg-slate-600 transition-colors border border-slate-600"
+              title="Cambiar Unidad"
             >
-                <RefreshCw size={12} className="text-slate-400" />
-                <span className="text-xs font-bold text-slate-200 w-4 text-center">{unit.toUpperCase()}</span>
+              <RefreshCw size={12} className="text-slate-400" />
+              <span className="text-xs font-bold text-slate-200 w-4 text-center">{unit.toUpperCase()}</span>
             </button>
 
-            <button 
+            <button
               onClick={() => setShowNoteInput(!showNoteInput)}
               className={`p-2 rounded-full transition-colors ${showNoteInput ? 'text-blue-400 bg-blue-900/30' : 'text-slate-400 hover:text-white'}`}
               title="Añadir Nota"
             >
               <StickyNote size={20} />
             </button>
-            <button 
-              onClick={handleFinish} 
+            <button
+              onClick={handleFinish}
               disabled={sessionEntries.length === 0}
               className="bg-blue-600 text-white px-4 py-1.5 rounded-full text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -196,7 +270,7 @@ export const WorkoutLogger: React.FC<Props> = ({ onCancel, onFinish, unit, onTog
             </button>
           </div>
         </div>
-        
+
         {/* Expanding Note Input */}
         {showNoteInput && (
           <div className="px-4 pb-4 animate-in slide-in-from-top-1 fade-in duration-200">
@@ -213,47 +287,47 @@ export const WorkoutLogger: React.FC<Props> = ({ onCancel, onFinish, unit, onTog
       </div>
 
       <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
-        
+
         {/* Exercise Selector (Left/Top) */}
         <div className={`flex-1 overflow-y-auto p-4 ${activeExerciseId ? 'hidden md:block md:w-1/3 md:border-r md:border-slate-700' : 'block'}`}>
           <h3 className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-3">Selecciona Ejercicio</h3>
-          
+
           {/* Create New Exercise Inline */}
           {!isCreatingExercise ? (
-             <button 
-               onClick={() => setIsCreatingExercise(true)}
-               className="w-full py-3 px-4 mb-4 rounded-lg border border-dashed border-slate-600 text-slate-400 hover:text-white hover:border-blue-500 hover:bg-slate-800 transition-all flex items-center justify-center text-sm font-bold"
-             >
-                <PlusCircle size={16} className="mr-2" />
-                Crear Nuevo Ejercicio
-             </button>
+            <button
+              onClick={() => setIsCreatingExercise(true)}
+              className="w-full py-3 px-4 mb-4 rounded-lg border border-dashed border-slate-600 text-slate-400 hover:text-white hover:border-blue-500 hover:bg-slate-800 transition-all flex items-center justify-center text-sm font-bold"
+            >
+              <PlusCircle size={16} className="mr-2" />
+              Crear Nuevo Ejercicio
+            </button>
           ) : (
-             <div className="bg-slate-800 p-3 rounded-lg border border-slate-600 mb-4 animate-in fade-in zoom-in-95">
-                <div className="flex justify-between items-center mb-3">
-                    <span className="text-xs font-bold text-white uppercase">Nuevo Ejercicio</span>
-                    <button onClick={() => setIsCreatingExercise(false)}><X size={16} className="text-slate-400 hover:text-white"/></button>
-                </div>
-                <input 
-                    autoFocus
-                    placeholder="Nombre (ej. Prensa)"
-                    value={newExerciseName}
-                    onChange={e => setNewExerciseName(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm text-white mb-2 focus:border-blue-500 outline-none"
-                />
-                <input 
-                    placeholder="Grupo Muscular (ej. Pierna)"
-                    value={newExerciseGroup}
-                    onChange={e => setNewExerciseGroup(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm text-white mb-3 focus:border-blue-500 outline-none"
-                />
-                <button 
-                    onClick={handleCreateExercise}
-                    disabled={!newExerciseName || !newExerciseGroup}
-                    className="w-full bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold py-2 rounded disabled:opacity-50"
-                >
-                    Guardar y Usar
-                </button>
-             </div>
+            <div className="bg-slate-800 p-3 rounded-lg border border-slate-600 mb-4 animate-in fade-in zoom-in-95">
+              <div className="flex justify-between items-center mb-3">
+                <span className="text-xs font-bold text-white uppercase">Nuevo Ejercicio</span>
+                <button onClick={() => setIsCreatingExercise(false)}><X size={16} className="text-slate-400 hover:text-white" /></button>
+              </div>
+              <input
+                autoFocus
+                placeholder="Nombre (ej. Prensa)"
+                value={newExerciseName}
+                onChange={e => setNewExerciseName(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm text-white mb-2 focus:border-blue-500 outline-none"
+              />
+              <input
+                placeholder="Grupo Muscular (ej. Pierna)"
+                value={newExerciseGroup}
+                onChange={e => setNewExerciseGroup(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm text-white mb-3 focus:border-blue-500 outline-none"
+              />
+              <button
+                onClick={handleCreateExercise}
+                disabled={!newExerciseName || !newExerciseGroup || savingExercise}
+                className="w-full bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold py-2 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {savingExercise ? 'Guardando...' : 'Guardar y Usar'}
+              </button>
+            </div>
           )}
 
           <div className="space-y-2">
@@ -263,16 +337,15 @@ export const WorkoutLogger: React.FC<Props> = ({ onCancel, onFinish, unit, onTog
                 <button
                   key={ex.id}
                   onClick={() => handleAddEntry(ex.id)}
-                  className={`w-full text-left p-3 rounded-lg flex justify-between items-center transition-colors ${
-                    activeExerciseId === ex.id 
-                      ? 'bg-blue-900/30 border border-blue-600/50 text-blue-200' 
-                      : 'bg-slate-800 hover:bg-slate-750 border border-slate-700'
-                  }`}
+                  className={`w-full text-left p-3 rounded-lg flex justify-between items-center transition-colors ${activeExerciseId === ex.id
+                    ? 'bg-blue-900/30 border border-blue-600/50 text-blue-200'
+                    : 'bg-slate-800 hover:bg-slate-750 border border-slate-700'
+                    }`}
                 >
                   <span>{ex.name}</span>
                   {hasData > 0 && (
                     <span className="bg-green-500/20 text-green-400 text-xs px-2 py-0.5 rounded-full flex items-center">
-                       {hasData} sets <CheckCircle2 size={10} className="ml-1" />
+                      {hasData} sets <CheckCircle2 size={10} className="ml-1" />
                     </span>
                   )}
                 </button>
@@ -285,11 +358,11 @@ export const WorkoutLogger: React.FC<Props> = ({ onCancel, onFinish, unit, onTog
         {activeExerciseId && activeExercise && (
           <div className="flex-1 flex flex-col h-full bg-slate-900 md:w-2/3">
             <div className="p-4 border-b border-slate-800 flex justify-between items-center md:hidden">
-                <h3 className="font-bold text-xl">{activeExercise.name}</h3>
-                <button onClick={() => setActiveExerciseId(null)} className="text-sm text-blue-400">Cambiar</button>
+              <h3 className="font-bold text-xl">{activeExercise.name}</h3>
+              <button onClick={() => setActiveExerciseId(null)} className="text-sm text-blue-400">Cambiar</button>
             </div>
-             <div className="p-4 border-b border-slate-800 hidden md:flex justify-between items-center">
-                <h3 className="font-bold text-xl">{activeExercise.name}</h3>
+            <div className="p-4 border-b border-slate-800 hidden md:flex justify-between items-center">
+              <h3 className="font-bold text-xl">{activeExercise.name}</h3>
             </div>
 
             {/* Set List */}
@@ -301,6 +374,8 @@ export const WorkoutLogger: React.FC<Props> = ({ onCancel, onFinish, unit, onTog
                     <th className="pb-2">{unit}</th>
                     <th className="pb-2">Reps</th>
                     <th className="pb-2">e1RM</th>
+                    <th className="pb-2">RIR</th>
+                    <th className="pb-2">RPE</th>
                     <th className="pb-2 text-right">Acción</th>
                   </tr>
                 </thead>
@@ -309,15 +384,17 @@ export const WorkoutLogger: React.FC<Props> = ({ onCancel, onFinish, unit, onTog
                     // Display stored kg in selected unit
                     // Use precision 1 for Table to show 12.5 correctly
                     const displayWeight = formatWeight(set.weight, unit, 1);
-                    const e1rm = Math.round(set.weight * (1 + set.reps/30));
+                    const e1rm = Math.round(set.weight * (1 + set.reps / 30));
                     const displayE1RM = formatWeight(e1rm, unit, 0); // Keep e1RM as integer
-                    
+
                     return (
                       <tr key={set.id} className="border-b border-slate-800/50">
                         <td className="py-3 pl-2 text-slate-500 font-mono">{idx + 1}</td>
                         <td className="py-3 font-bold text-white">{displayWeight}</td>
                         <td className="py-3">{set.reps}</td>
                         <td className="py-3 text-slate-500">{displayE1RM}</td>
+                        <td className="py-3">{set.rir ?? '-'}</td>
+                        <td className="py-3">{set.rpe ?? '-'}</td>
                         <td className="py-3 text-right">
                           <button onClick={() => removeSet(activeEntry.id, set.id)} className="text-red-400 p-1">
                             <Trash2 size={16} />
@@ -327,11 +404,11 @@ export const WorkoutLogger: React.FC<Props> = ({ onCancel, onFinish, unit, onTog
                     );
                   })}
                   {(!activeEntry?.sets.length) && (
-                      <tr>
-                          <td colSpan={5} className="py-8 text-center text-slate-500 italic">
-                              Agrega series usando los controles de abajo
-                          </td>
-                      </tr>
+                    <tr>
+                      <td colSpan={7} className="py-8 text-center text-slate-500 italic">
+                        Agrega series usando los controles de abajo
+                      </td>
+                    </tr>
                   )}
                 </tbody>
               </table>
@@ -339,39 +416,80 @@ export const WorkoutLogger: React.FC<Props> = ({ onCancel, onFinish, unit, onTog
 
             {/* Controls */}
             <div className="p-4 bg-slate-800 border-t border-slate-700">
-              <div className="grid grid-cols-2 gap-4 mb-4">
-                <div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+                <div className="sm:col-span-1">
                   <label className="text-xs text-slate-400 block mb-1">Peso ({unit})</label>
                   <div className="flex items-center space-x-2">
                     <button onClick={() => adjustWeight(-smallInc)} className="p-2 bg-slate-700 rounded-md text-slate-300">-</button>
-                    <input 
-                      type="number" 
-                      value={currentWeight} 
+                    <input
+                      type="number"
+                      value={currentWeight}
                       onChange={(e) => setCurrentWeight(e.target.value)}
                       placeholder="0"
                       className="flex-1 bg-slate-900 border border-slate-700 rounded-md p-2 text-center font-mono text-lg text-white"
                       inputMode="decimal"
                     />
-                     <button onClick={() => adjustWeight(smallInc)} className="p-2 bg-slate-700 rounded-md text-slate-300">+</button>
+                    <button onClick={() => adjustWeight(smallInc)} className="p-2 bg-slate-700 rounded-md text-slate-300">+</button>
                   </div>
-                   <div className="flex justify-center mt-2 space-x-2">
-                       <button onClick={() => adjustWeight(smallInc)} className="text-[10px] bg-slate-700 px-2 py-1 rounded text-blue-200">+{smallInc}</button>
-                       <button onClick={() => adjustWeight(largeInc)} className="text-[10px] bg-slate-700 px-2 py-1 rounded text-blue-200">+{largeInc}</button>
-                   </div>
+                  <div className="flex justify-center mt-2 space-x-2">
+                    <button onClick={() => adjustWeight(smallInc)} className="text-[10px] bg-slate-700 px-2 py-1 rounded text-blue-200">+{smallInc}</button>
+                    <button onClick={() => adjustWeight(largeInc)} className="text-[10px] bg-slate-700 px-2 py-1 rounded text-blue-200">+{largeInc}</button>
+                  </div>
                 </div>
                 <div>
                   <label className="text-xs text-slate-400 block mb-1">Reps</label>
-                  <input 
-                    type="number" 
-                    value={currentReps} 
-                    onChange={(e) => setCurrentReps(e.target.value)}
-                    placeholder="0"
-                    className="w-full bg-slate-900 border border-slate-700 rounded-md p-2 text-center font-mono text-lg text-white"
-                    inputMode="numeric"
-                  />
+                  <div className="flex items-center space-x-2">
+                    <button 
+                      onClick={() => setCurrentReps(prev => Math.max(0, (parseInt(prev) || 0) - 1).toString())} 
+                      className="p-2 bg-slate-700 rounded-md text-slate-300"
+                    >
+                      -
+                    </button>
+                    <input
+                      type="number"
+                      value={currentReps}
+                      onChange={(e) => setCurrentReps(e.target.value)}
+                      placeholder="0"
+                      className="flex-1 bg-slate-900 border border-slate-700 rounded-md p-2 text-center font-mono text-lg text-white"
+                      inputMode="numeric"
+                    />
+                    <button 
+                      onClick={() => setCurrentReps(prev => ((parseInt(prev) || 0) + 1).toString())} 
+                      className="p-2 bg-slate-700 rounded-md text-slate-300"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">RIR (0-10)</label>
+                  <div className="flex items-center space-x-2">
+                    <button 
+                      onClick={() => setCurrentRir(prev => Math.max(0, (parseInt(prev) || 0) - 1).toString())} 
+                      className="p-2 bg-slate-700 rounded-md text-slate-300"
+                    >
+                      -
+                    </button>
+                    <input
+                      type="number"
+                      min={0}
+                      max={10}
+                      value={currentRir}
+                      onChange={(e) => setCurrentRir(e.target.value)}
+                      placeholder="-"
+                      className="flex-1 bg-slate-900 border border-slate-700 rounded-md p-2 text-center font-mono text-lg text-white"
+                      inputMode="numeric"
+                    />
+                    <button 
+                      onClick={() => setCurrentRir(prev => Math.min(10, (parseInt(prev) || 0) + 1).toString())} 
+                      className="p-2 bg-slate-700 rounded-md text-slate-300"
+                    >
+                      +
+                    </button>
+                  </div>
                 </div>
               </div>
-              <button 
+              <button
                 onClick={handleAddSet}
                 className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-lg flex items-center justify-center transition-colors"
               >

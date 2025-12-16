@@ -12,6 +12,7 @@ export interface UserProfile {
 
 export interface Exercise {
   id: string;
+  userId?: string; // For Supabase user association
   name: string;
   muscleGroup: string;
   isCustom: boolean; // false = seed, true = created by user
@@ -22,6 +23,7 @@ export interface SetEntry {
   weight: number;
   reps: number;
   rpe?: number;
+  rir?: number;
   isWarmup: boolean;
 }
 
@@ -49,4 +51,6 @@ export interface ExerciseStats {
   trendPercent: number;
   status: 'improving' | 'maintaining' | 'declining' | 'new';
   history: { date: string; e1rm: number }[];
+  avgRIR?: number; // Average RIR of last session
+  avgRPE?: number; // Average RPE of last session
 }

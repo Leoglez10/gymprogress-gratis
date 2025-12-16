@@ -6,14 +6,18 @@ import { TrendBadge } from './TrendBadge';
 interface Props {
   stats: ExerciseStats;
   unit?: Unit;
+  onClick?: () => void;
 }
 
-export const ExerciseCard: React.FC<Props> = ({ stats, unit = 'kg' }) => {
+export const ExerciseCard: React.FC<Props> = ({ stats, unit = 'kg', onClick }) => {
   // Determine chart color based on status
   const chartColor = stats.status === 'improving' ? '#22c55e' : stats.status === 'declining' ? '#ef4444' : '#3b82f6';
 
   return (
-    <div className="bg-slate-800 rounded-xl p-4 mb-4 border border-slate-700 shadow-sm relative overflow-hidden">
+    <button
+      onClick={onClick}
+      className="w-full text-left bg-slate-800 rounded-xl p-4 mb-4 border border-slate-700 shadow-sm relative overflow-hidden hover:border-blue-500/60 transition-colors"
+    >
       <div className="flex justify-between items-start mb-2 relative z-10">
         <div>
           <h3 className="font-bold text-lg text-slate-100">{stats.exerciseName}</h3>
@@ -28,6 +32,13 @@ export const ExerciseCard: React.FC<Props> = ({ stats, unit = 'kg' }) => {
         <div>
           <span className="text-3xl font-bold tracking-tight text-white">{stats.currentE1RM}</span>
           <span className="text-sm text-slate-400 ml-1">{unit} (e1RM)</span>
+          {(stats.avgRIR != null || stats.avgRPE != null) && (
+            <div className="text-[11px] text-slate-400 mt-1">
+              {stats.avgRIR != null && <span>RIR prom: <span className="text-slate-200">{stats.avgRIR}</span></span>}
+              {stats.avgRIR != null && stats.avgRPE != null && <span className="mx-2">•</span>}
+              {stats.avgRPE != null && <span>RPE prom: <span className="text-slate-200">{stats.avgRPE}</span></span>}
+            </div>
+          )}
         </div>
       </div>
 
@@ -55,6 +66,6 @@ export const ExerciseCard: React.FC<Props> = ({ stats, unit = 'kg' }) => {
           </ResponsiveContainer>
         </div>
       )}
-    </div>
+    </button>
   );
 };
