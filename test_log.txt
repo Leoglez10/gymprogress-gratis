@@ -1,0 +1,4 @@
+­ƒÜÇ Starting Test Flow for: test114133@gmail.com
+----------------------------------------
+1´©ÅÔâú  Attempting Sign Up...
+ÔØî Sign Up Failed: Database error saving new user
