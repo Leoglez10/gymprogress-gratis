@@ -71,8 +71,7 @@ export const sessionService = {
                     weight_kg: set.weight, // ya está en kg
                     reps: set.reps,
                     rpe: set.rpe || (set.rir != null ? Math.max(1, Math.min(10, 10 - set.rir)) : null),
-                    rir: set.rir ?? null,
-                    is_warmup: set.isWarmup
+                    rir: set.rir ?? null
                 }));
 
                 const { error: setsError } = await supabase
@@ -173,7 +172,7 @@ export const sessionService = {
                                 reps: set.reps,
                                 rpe: set.rpe || undefined,
                                 rir: set.rir || undefined,
-                                isWarmup: set.is_warmup
+                                isWarmup: false // Default to false since column doesn't exist
                             }))
                         };
                     })
@@ -227,22 +226,45 @@ export const sessionService = {
     /**
      * Delete a session and all its entries/sets (cascade should handle this automatically)
      */
-    deleteSession: async (sessionId: string): Promise<boolean> => {
+    deleteSession: async (sessionId: string, userId: string): Promise<{ success: boolean; error?: string }> => {
         try {
-            const { error } = await supabase
-                .from('workout_sessions')
-                .delete()
-                .eq('id', sessionId);
-
-            if (error) {
-                console.error('Error deleting session:', error);
-                return false;
+            if (!sessionId || !userId) {
+                return { success: false, error: 'Session ID and User ID are required' };
             }
 
-            return true;
+            // First verify the session belongs to the user (security check)
+            const { data: session, error: fetchError } = await supabase
+                .from('workout_sessions')
+                .select('id, user_id')
+                .eq('id', sessionId)
+                .single();
+
+            if (fetchError || !session) {
+                console.error('Error fetching session:', fetchError);
+                return { success: false, error: 'Sesión no encontrada' };
+            }
+
+            if (session.user_id !== userId) {
+                console.error('User does not own this session');
+                return { success: false, error: 'No tienes permiso para eliminar esta sesión' };
+            }
+
+            // Delete the session (cascade will handle entries and sets)
+            const { error: deleteError } = await supabase
+                .from('workout_sessions')
+                .delete()
+                .eq('id', sessionId)
+                .eq('user_id', userId); // Extra safety with RLS
+
+            if (deleteError) {
+                console.error('Error deleting session:', deleteError);
+                return { success: false, error: deleteError.message || 'Error al eliminar la sesión' };
+            }
+
+            return { success: true };
         } catch (error) {
             console.error('Exception deleting session:', error);
-            return false;
+            return { success: false, error: error instanceof Error ? error.message : 'Error desconocido' };
         }
     }
 };

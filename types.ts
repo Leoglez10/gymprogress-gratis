@@ -6,7 +6,6 @@ export interface UserProfile {
   email?: string; // Added for Auth
   password?: string; // Added for Auth simulation (stored locally)
   alias?: string;
-  photoUrl?: string;
   weightUnit: Unit;
 }
 

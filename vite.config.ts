@@ -10,8 +10,7 @@ export default defineConfig({
     allowedHosts: [
       'chem-acknowledge-distribution-zip.trycloudflare.com',
       '.ngrok-free.app',
-      'trying-factors-tops-avatar.trycloudflare.com',
-      'voters-accuracy-nursery-promotes.trycloudflare.com'
+      'hwy-drew-column-teenage.trycloudflare.com'
     ]
   },
   plugins: [react()],

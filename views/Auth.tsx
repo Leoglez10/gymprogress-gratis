@@ -66,7 +66,7 @@ export const AuthView: React.FC<Props> = ({ onLoginSuccess }) => {
     setLoading(true);
     clearErrors();
     try {
-      await authService.register(name, email, password);
+      await authService.register(email, password, name);
       // Show verification screen instead of auto-login
       setMode('verify_email');
     } catch (err: any) {

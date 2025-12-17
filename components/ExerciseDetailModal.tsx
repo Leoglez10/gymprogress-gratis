@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { X, TrendingUp } from 'lucide-react';
+import { X, TrendingUp, Edit2 } from 'lucide-react';
 import { Exercise, Unit, WorkoutSession } from '../types';
 import { formatWeight, calculateE1RM } from '../utils/calculations';
 
@@ -20,6 +20,7 @@ interface BucketRow {
   volume: number;
   avgRIR?: number;
   avgRPE?: number;
+  sessionIds: string[];
 }
 
 const isoWeek = (d: Date): { year: number; week: number } => {
@@ -107,7 +108,8 @@ const buildRows = (exercise: Exercise, sessions: WorkoutSession[], tf: Timeframe
       avgE1RM,
       volume: b.volume,
       avgRIR: avgRIR != null ? Math.round(avgRIR * 10) / 10 : undefined,
-      avgRPE: avgRPE != null ? Math.round(avgRPE * 10) / 10 : undefined
+      avgRPE: avgRPE != null ? Math.round(avgRPE * 10) / 10 : undefined,
+      sessionIds: Array.from(b.sessions)
     });
   });
 
@@ -117,6 +119,7 @@ const buildRows = (exercise: Exercise, sessions: WorkoutSession[], tf: Timeframe
 export const ExerciseDetailModal: React.FC<Props> = ({ exercise, sessions, unit, onClose }) => {
   const [timeframe, setTimeframe] = useState<Timeframe>('week');
   const [showChart, setShowChart] = useState(false);
+  const [selectedRowSessions, setSelectedRowSessions] = useState<string[] | null>(null);
 
   const rows = useMemo(() => buildRows(exercise, sessions, timeframe), [exercise, sessions, timeframe]);
 
@@ -190,38 +193,94 @@ export const ExerciseDetailModal: React.FC<Props> = ({ exercise, sessions, unit,
           <StatCard label="RIR prom" value={totals.rir != null ? totals.rir.toString() : '-'} secondary={`RPE prom ${totals.rpe ?? '-'}`} />
         </div>
 
-        <div className="px-5 pb-5 overflow-auto">
-          <table className="w-full text-sm text-slate-200">
-            <thead>
-              <tr className="text-slate-500 border-b border-slate-800">
-                <th className="py-2 text-left">Periodo</th>
-                <th className="py-2 text-left">Sesiones</th>
-                <th className="py-2 text-left">Mejor e1RM</th>
-                <th className="py-2 text-left">e1RM prom</th>
-                <th className="py-2 text-left">Volumen</th>
-                <th className="py-2 text-left">RIR prom</th>
-                <th className="py-2 text-left">RPE prom</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="py-6 text-center text-slate-500">Sin datos para este ejercicio.</td>
+        <div className="px-5 pb-5 overflow-auto max-h-96">
+          {/* Desktop Table */}
+          <div className="hidden md:block">
+            <table className="w-full text-sm text-slate-200">
+              <thead>
+                <tr className="text-slate-500 border-b border-slate-800">
+                  <th className="py-2 text-left">Periodo</th>
+                  <th className="py-2 text-left">Sesiones</th>
+                  <th className="py-2 text-left">Mejor e1RM</th>
+                  <th className="py-2 text-left">e1RM prom</th>
+                  <th className="py-2 text-left">Volumen</th>
+                  <th className="py-2 text-left">RIR prom</th>
+                  <th className="py-2 text-left">RPE prom</th>
                 </tr>
-              )}
-              {rows.map(row => (
-                <tr key={row.label} className="border-b border-slate-800/60">
-                  <td className="py-2 font-semibold">{row.label}</td>
-                  <td className="py-2">{row.sessions}</td>
-                  <td className="py-2">{formatWeight(row.bestE1RM, unit, 0)} {unit}</td>
-                  <td className="py-2">{formatWeight(row.avgE1RM, unit, 0)} {unit}</td>
-                  <td className="py-2">{formatWeight(row.volume, unit, 0)} {unit}</td>
-                  <td className="py-2">{row.avgRIR != null ? row.avgRIR : '-'}</td>
-                  <td className="py-2">{row.avgRPE != null ? row.avgRPE : '-'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rows.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="py-6 text-center text-slate-500">Sin datos para este ejercicio.</td>
+                  </tr>
+                )}
+                {rows.map(row => (
+                  <tr 
+                    key={row.label} 
+                    className="border-b border-slate-800/60 hover:bg-slate-800/30 transition-colors cursor-pointer"
+                    onClick={() => setSelectedRowSessions(row.sessionIds)}
+                  >
+                    <td className="py-2 font-semibold">{row.label}</td>
+                    <td className="py-2 flex items-center gap-1">
+                      {row.sessions}
+                      <Edit2 size={14} className="text-slate-500" />
+                    </td>
+                    <td className="py-2">{formatWeight(row.bestE1RM, unit, 0)} {unit}</td>
+                    <td className="py-2">{formatWeight(row.avgE1RM, unit, 0)} {unit}</td>
+                    <td className="py-2">{formatWeight(row.volume, unit, 0)} {unit}</td>
+                    <td className="py-2">{row.avgRIR != null ? row.avgRIR : '-'}</td>
+                    <td className="py-2">{row.avgRPE != null ? row.avgRPE : '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile Cards */}
+          <div className="md:hidden space-y-3">
+            {rows.length === 0 && (
+              <div className="py-6 text-center text-slate-500">Sin datos para este ejercicio.</div>
+            )}
+            {rows.map(row => (
+              <div 
+                key={row.label} 
+                className="bg-slate-800/30 border border-slate-700/50 rounded-lg p-3 space-y-2 cursor-pointer hover:bg-slate-800/50 transition-colors"
+                onClick={() => setSelectedRowSessions(row.sessionIds)}
+              >
+                <div className="flex items-center justify-between border-b border-slate-700/30 pb-2">
+                  <span className="font-semibold text-white">{row.label}</span>
+                  <span className="text-xs bg-blue-600/20 text-blue-400 px-2 py-1 rounded flex items-center gap-1">
+                    {row.sessions} sesión{row.sessions > 1 ? 'es' : ''}
+                    <Edit2 size={12} />
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <span className="text-slate-400">Mejor e1RM</span>
+                    <div className="font-semibold text-white">{formatWeight(row.bestE1RM, unit, 0)} {unit}</div>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">e1RM prom</span>
+                    <div className="font-semibold text-white">{formatWeight(row.avgE1RM, unit, 0)} {unit}</div>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">Volumen</span>
+                    <div className="font-semibold text-white">{formatWeight(row.volume, unit, 0)} {unit}</div>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">RIR prom</span>
+                    <div className="font-semibold text-white">{row.avgRIR != null ? row.avgRIR : '-'}</div>
+                  </div>
+                  {row.avgRPE != null && (
+                    <div>
+                      <span className="text-slate-400">RPE prom</span>
+                      <div className="font-semibold text-white">{row.avgRPE}</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
@@ -363,6 +422,77 @@ export const ExerciseDetailModal: React.FC<Props> = ({ exercise, sessions, unit,
                 <span>Mejor e1RM por periodo</span>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* Sessions Detail Modal */}
+    {selectedRowSessions && (
+      <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+        <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-auto shadow-xl">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800 sticky top-0 bg-slate-900 z-10">
+            <div>
+              <p className="text-xs uppercase text-slate-500">Sesiones</p>
+              <h2 className="text-xl font-bold text-white">{exercise.name}</h2>
+            </div>
+            <button onClick={() => setSelectedRowSessions(null)} className="p-2 text-slate-400 hover:text-white">
+              <X size={20} />
+            </button>
+          </div>
+
+          <div className="p-5 space-y-4">
+            {sessions
+              .filter(s => selectedRowSessions.includes(s.id))
+              .map(session => {
+                const entry = session.entries.find(e => e.exerciseId === exercise.id);
+                if (!entry) return null;
+                
+                const workSets = entry.sets.filter(s => !s.isWarmup && s.weight > 0 && s.reps > 0);
+                
+                return (
+                  <div key={session.id} className="bg-slate-800/30 border border-slate-700/50 rounded-lg p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-white">{new Date(session.date).toLocaleDateString('es-ES', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                      <button className="text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
+                        <Edit2 size={14} />
+                        Editar sesión
+                      </button>
+                    </div>
+                    
+                    {workSets.length === 0 ? (
+                      <div className="text-slate-400 text-sm">Sin sets registrados</div>
+                    ) : (
+                      <div className="space-y-2">
+                        {workSets.map((set, idx) => (
+                          <div key={idx} className="bg-slate-800/50 border border-slate-700/30 rounded-lg p-3 flex items-center justify-between hover:bg-slate-800/70 transition-colors cursor-pointer group">
+                            <div className="flex-1">
+                              <div className="text-sm font-semibold text-white">
+                                Serie {idx + 1}
+                              </div>
+                              <div className="text-xs text-slate-400 mt-1 flex gap-4">
+                                <span><strong className="text-slate-300">{set.weight}</strong> {unit} × <strong className="text-slate-300">{set.reps}</strong> reps</span>
+                                {set.rir != null && <span>RIR: <strong className="text-yellow-400">{set.rir}</strong></span>}
+                                {set.rpe != null && <span>RPE: <strong className="text-orange-400">{set.rpe}</strong></span>}
+                              </div>
+                            </div>
+                            <div className="text-sm font-bold text-blue-400">
+                              {formatWeight(calculateE1RM(set.weight, set.reps), unit, 0)} {unit}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {session.note && (
+                      <div className="bg-slate-800/20 border-l-2 border-slate-600 p-3 mt-3">
+                        <p className="text-xs uppercase text-slate-500 mb-1">Nota</p>
+                        <p className="text-sm text-slate-300">{session.note}</p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
           </div>
         </div>
       </div>

@@ -60,7 +60,9 @@ export const authService = {
     }
 
     // Always clear localStorage critical keys just in case
-    localStorage.removeItem('sb-kxvqtlfvginxgvaggzol-auth-token'); // Supabase token key pattern
+    Object.keys(localStorage)
+      .filter((key) => key.startsWith('sb-') && key.endsWith('-auth-token'))
+      .forEach((key) => localStorage.removeItem(key));
     localStorage.removeItem('gp_user_profile');
   },
 
@@ -73,27 +75,49 @@ export const authService = {
         .from('profiles')
         .select('*')
         .eq('id', userId)
-        .maybeSingle(); // Use maybeSingle to avoid errors if row is missing
+        .maybeSingle();
 
       if (error) {
         console.error('Error fetching profile:', error);
-        return null; // Return null to let UI handle "no profile" state
+        return null;
       }
 
+      // If profile doesn't exist, create it
       if (!profile) {
-        console.log('No profile found for user (Strict Mode).');
-        // Strict mode: If profile doesn't exist in DB, we return null.
-        return null; // The app will handle "Auth but no profile" as a failure state
+        console.log('Profile not found, creating...');
+        const name = email.split('@')[0];
+        const { error: insertError } = await supabase
+          .from('profiles')
+          .insert({
+            id: userId,
+            full_name: name,
+            weight_unit: 'kg',
+          });
+
+        if (insertError) {
+          console.error('Error creating profile:', insertError);
+          return null;
+        }
+
+        // Return newly created profile
+        const userProfile: UserProfile = {
+          id: userId,
+          email: email,
+          name: name,
+          alias: name,
+          weightUnit: 'kg',
+        };
+        console.log('Profile created, returning:', userProfile);
+        return userProfile;
       }
 
-      // Return connection-validated profile
+      // Return existing profile
       const userProfile: UserProfile = {
         id: userId,
         email: email,
         name: profile.full_name || email.split('@')[0],
         alias: profile.nombre_mostrar || profile.full_name?.split(' ')[0] || email.split('@')[0],
-        weightUnit: (profile.weight_unit || profile.unidad_peso || 'kg') as 'kg' | 'lb',
-        photoUrl: profile.avatar_url || profile.foto_url
+        weightUnit: (profile.weight_unit || profile.unidad_peso || 'kg') as 'kg' | 'lb'
       };
 
       console.log('Returning user profile:', userProfile);

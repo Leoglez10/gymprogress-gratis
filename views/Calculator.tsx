@@ -34,7 +34,7 @@ export const CalculatorView: React.FC<Props> = ({ onBack, unit = 'kg' }) => {
     const estRepsAtRir = isNaN(normalizedRir as any) ? 0 : Math.max(0, Math.floor(maxReps - (normalizedRir || 0)));
 
     return {
-      e1rmDisplay: e1rm > 0 ? formatWeight(e1rm, unit, 0) : 0,
+      e1rmDisplay: e1rm > 0 ? `${formatWeight(e1rm, unit, 0)} ${unit}` : '0',
       normalizedRir: isNaN(normalizedRir as any) ? undefined : Math.round((normalizedRir as number) * 10) / 10,
       normalizedRpe: isNaN(normalizedRpe as any) ? undefined : Math.round((normalizedRpe as number) * 10) / 10,
       maxReps,
@@ -118,7 +118,7 @@ export const CalculatorView: React.FC<Props> = ({ onBack, unit = 'kg' }) => {
               <p className="text-sm font-medium text-blue-400">e1RM Estimado</p>
             </div>
             <p className="text-3xl font-bold text-white">
-              {results.e1rmDisplay > 0 ? `${results.e1rmDisplay} ${unit}` : '—'}
+              {results.e1rmDisplay !== '0' ? results.e1rmDisplay : '—'}
             </p>
           </div>
           <div className="bg-slate-700/30 border border-slate-600 rounded-lg p-4">
